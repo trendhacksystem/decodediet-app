@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useMemo } from "react";
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Legend } from "recharts";
 import { supabase, todayKey, fmtShort, compressImage, signedUrls } from "./lib/supabase";
 import { C, HABITS, LEVELS, GOAL_UNLOCK_PT, levelOf, pickMessage, Puyo, Room, GlobalStyle } from "./shared.jsx";
+import InstallGuide from "./InstallGuide.jsx";
 import yukiImg from "./assets/yuki.jpg";
 
 export default function PatientApp({ session, profile, onProfileChange }) {
@@ -25,6 +26,7 @@ export default function PatientApp({ session, profile, onProfileChange }) {
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(true);
   const fileRef = useRef(null);
+  const cameraRef = useRef(null);
 
   const level = levelOf(profile.points);
   const today = records.find((r) => r.record_date === tk) ?? { habits: [], meal_count: 0 };
@@ -111,28 +113,38 @@ export default function PatientApp({ session, profile, onProfileChange }) {
   };
 
   const onPhoto = async (e) => {
-    const file = e.target.files?.[0];
+    const files = Array.from(e.target.files ?? []);
     e.target.value = "";
-    if (!file) return;
+    if (files.length === 0) return;
     if (photos.length >= 8) return showToast("きょうは 8まいまで！");
+    const toUpload = files.slice(0, 8 - photos.length);
+    if (toUpload.length < files.length) showToast("きょうは のこり" + toUpload.length + "まいまで！");
     setBusy(true);
+    let added = [];
+    let earned = 0;
     try {
-      const blob = await compressImage(file);
-      const path = `${uid}/${tk}/${Date.now()}.jpg`;
-      const { error } = await supabase.storage.from("meals").upload(path, blob, { contentType: "image/jpeg" });
-      if (error) throw error;
-      const { data: row } = await supabase.from("meal_photos")
-        .insert({ user_id: uid, record_date: tk, storage_path: path }).select().single();
-      const urls = await signedUrls([path]);
-      const next = [...photos, { ...row, url: urls[path] }];
+      for (const file of toUpload) {
+        const blob = await compressImage(file);
+        const path = `${uid}/${tk}/${Date.now()}_${Math.random().toString(36).slice(2, 6)}.jpg`;
+        const { error } = await supabase.storage.from("meals").upload(path, blob, { contentType: "image/jpeg" });
+        if (error) throw error;
+        const { data: row } = await supabase.from("meal_photos")
+          .insert({ user_id: uid, record_date: tk, storage_path: path }).select().single();
+        const urls = await signedUrls([path]);
+        added.push({ ...row, url: urls[path] });
+        // ポイントは1日4枚まで
+        if (today.meal_count + added.length <= 4) earned += 5;
+      }
+      const next = [...photos, ...added];
       setPhotos(next);
       await upsertToday({ meal_count: next.length });
-      if (today.meal_count < 4) {
-        await addPoints(5);
-        showToast("+5pt ごはんきろく！");
+      if (earned > 0) {
+        await addPoints(earned);
+        showToast(`+${earned}pt ごはんきろく！`);
       } else showToast("しゃしんを ほぞんしたよ");
     } catch (err) {
       console.error(err);
+      if (added.length > 0) setPhotos([...photos, ...added]);
       showToast("アップロードに しっぱい…");
     }
     setBusy(false);
@@ -203,6 +215,7 @@ export default function PatientApp({ session, profile, onProfileChange }) {
   return (
     <div style={{ minHeight: "100vh", background: C.cream, color: C.choco, paddingBottom: 48 }}>
       <GlobalStyle />
+      <InstallGuide />
       <div style={{ maxWidth: 448, margin: "0 auto", padding: "20px 16px 0" }}>
 
         {/* ヘッダー */}
@@ -305,12 +318,20 @@ export default function PatientApp({ session, profile, onProfileChange }) {
                     </span>
                   </div>
                 ))}
-                <button onClick={() => fileRef.current?.click()} disabled={busy}
-                  style={{ width: 80, height: 80, borderRadius: 16, fontWeight: 800, fontSize: 22, border: `2.5px dashed ${C.chocoLight}`, color: C.chocoLight, background: C.cream, cursor: "pointer", fontFamily: "inherit" }}>
-                  {busy ? "…" : "📷+"}
-                </button>
+                <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                  <button onClick={() => cameraRef.current?.click()} disabled={busy}
+                    style={{ width: 80, height: 37, borderRadius: 12, fontWeight: 800, fontSize: 11, border: `2.5px dashed ${C.chocoLight}`, color: C.chocoLight, background: C.cream, cursor: "pointer", fontFamily: "inherit" }}>
+                    {busy ? "…" : "📷 さつえい"}
+                  </button>
+                  <button onClick={() => fileRef.current?.click()} disabled={busy}
+                    style={{ width: 80, height: 37, borderRadius: 12, fontWeight: 800, fontSize: 11, border: `2.5px dashed ${C.chocoLight}`, color: C.chocoLight, background: C.cream, cursor: "pointer", fontFamily: "inherit" }}>
+                    {busy ? "…" : "🖼️ アルバム"}
+                  </button>
+                </div>
               </div>
-              <input ref={fileRef} type="file" accept="image/*" capture="environment" style={{ display: "none" }} onChange={onPhoto} />
+              <p style={{ fontSize: 10, fontWeight: 700, color: C.chocoLight, margin: "8px 0 0" }}>アルバムからは まとめて えらべるよ（夜に いちにちぶん まとめてもOK！）</p>
+              <input ref={cameraRef} type="file" accept="image/*" capture="environment" style={{ display: "none" }} onChange={onPhoto} />
+              <input ref={fileRef} type="file" accept="image/*" multiple style={{ display: "none" }} onChange={onPhoto} />
             </section>
 
             {/* 健康アクション */}

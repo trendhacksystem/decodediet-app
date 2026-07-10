@@ -37,3 +37,8 @@ function Root() {
 }
 
 createRoot(document.getElementById("root")).render(<Root />);
+
+// PWA: Service Worker 登録（ホーム画面追加でアプリとして起動できるように）
+if ("serviceWorker" in navigator) {
+  window.addEventListener("load", () => navigator.serviceWorker.register("/sw.js").catch(() => {}));
+}
