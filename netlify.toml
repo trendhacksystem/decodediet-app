@@ -1,0 +1,9 @@
+[build]
+  command = "npm run build"
+  publish = "dist"
+
+# SPA: /admin などのパスも index.html に向ける
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
